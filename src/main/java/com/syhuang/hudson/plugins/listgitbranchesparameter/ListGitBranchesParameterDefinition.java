@@ -62,6 +62,8 @@ public class ListGitBranchesParameterDefinition extends ParameterDefinition impl
     private Boolean quickFilterEnabled;
     private String listSize;
 
+    private static final Pattern patternUrl = Pattern.compile("\\$\\{(.+)\\}|\\$(.+)\\s?");
+
 
     @DataBoundConstructor
     public ListGitBranchesParameterDefinition(String name, String description, String remoteURL, String credentialsId, String defaultValue,
@@ -80,6 +82,20 @@ public class ListGitBranchesParameterDefinition extends ParameterDefinition impl
         setType(type);
         setTagFilter(tagFilter);
         setBranchFilter(branchFilter);
+    }
+
+    public static String replaceGlobalVars(String str) {
+        Matcher m = patternUrl.matcher(str);
+        while (m.find()) {
+            // If ${VARNAME} match found, return that group, else return $NoWhiteSpace group
+            String globalVariable = (m.group(1) != null) ? m.group(1) : m.group(2);
+            String globalValue = GlobalNodeProperties.getValue(globalVariable);
+            if (globalValue != null) {
+                //Replace the full match (group 0) to remove any $ and {}
+                str = str.replace(m.group(0), globalValue);
+            }
+        }
+        return str;
     }
 
     @Override
@@ -348,11 +364,11 @@ public class ListGitBranchesParameterDefinition extends ParameterDefinition impl
         GitClient gitClient = createGitClient(job);
         try {
             if (isTagType()) {
-                Set<String> tagSet = getTag(gitClient, remoteURL);
+                Set<String> tagSet = getTag(gitClient, replaceGlobalVars(remoteURL));
                 sortAndPutToParam(tagSet, paramList);
             }
             if (isBranchType()) {
-                Set<String> branchSet = getBranch(gitClient, remoteURL);
+                Set<String> branchSet = getBranch(gitClient, replaceGlobalVars(remoteURL));
                 sortAndPutToParam(branchSet, paramList);
             }
 
@@ -379,14 +395,14 @@ public class ListGitBranchesParameterDefinition extends ParameterDefinition impl
 
         GitClient c = git.getClient();
         List<StandardUsernameCredentials> urlCredentials = CredentialsProvider.lookupCredentials(
-                StandardUsernameCredentials.class, job, ACL.SYSTEM, URIRequirementBuilder.fromUri(remoteURL).build()
+                StandardUsernameCredentials.class, job, ACL.SYSTEM, URIRequirementBuilder.fromUri(replaceGlobalVars(remoteURL)).build()
         );
         CredentialsMatcher ucMatcher = CredentialsMatchers.withId(credentialsId);
         CredentialsMatcher idMatcher = CredentialsMatchers.allOf(ucMatcher, GitClient.CREDENTIALS_MATCHER);
         StandardUsernameCredentials credentials = CredentialsMatchers.firstOrNull(urlCredentials, idMatcher);
 
         if (credentials != null) {
-            c.addCredentials(remoteURL, credentials);
+            c.addCredentials(replaceGlobalVars(remoteURL), credentials);
             if (job != null && job.getLastBuild() != null) {
                 CredentialsProvider.track(job.getLastBuild(), credentials);
             }
